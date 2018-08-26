@@ -19,4 +19,4 @@ CFLAGS = -mmcu=$(CHIP) $(OPTS)
 %.elf: %.o
 	$(CC) $(CFLAGS) -o $@ $^
 
-DRM-114.elf: DRM-114.o AES.o key-protection.o
+DRM-114.elf: DRM-114.o AES.o key_protection.o
