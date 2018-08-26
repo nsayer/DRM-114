@@ -36,9 +36,9 @@
 
 // ct_length is the available length of the buffer on input, and the actual length of the ciphertext on
 // output.
-void encrypt_message(uint8_t* plaintext, size_t pt_length, uint8_t* ciphertext, size_t *ct_length) {
+uint8_t encrypt_message(uint8_t* plaintext, size_t pt_length, uint8_t* ciphertext, size_t *ct_length) {
 
-	if (*ct_length < pt_length + KEY_SIZE + BLOCK_SIZE * 2) return; // we'd throw an exception if we could
+	if (*ct_length < pt_length + KEY_SIZE + BLOCK_SIZE * 2) return 0; // we'd throw an exception if we could
 
 	PRNG(ciphertext, KEY_SIZE + BLOCK_SIZE); // make a random key and a random IV
 	memcpy(ciphertext + KEY_SIZE + 2 * BLOCK_SIZE, plaintext, pt_length);
@@ -48,6 +48,7 @@ void encrypt_message(uint8_t* plaintext, size_t pt_length, uint8_t* ciphertext, 
 	encrypt_OFB(ciphertext + KEY_SIZE + BLOCK_SIZE, pt_length + BLOCK_SIZE);
 	protect_key(ciphertext, 1);
 	*ct_length = pt_length + KEY_SIZE + BLOCK_SIZE * 2;
+	return 1;
 }
 
 // ct_length is the available length of the buffer on input, and the actual length of the ciphertext on
