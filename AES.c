@@ -49,6 +49,8 @@ ECB decryption support is optional, as Counter mode and CMAC need only AES ECB e
  * @deprecated unfortunately this class is has a few side channel issues. In an environment where encryption/decryption may be closely observed it should not be used.
  */
 
+#include "AES.h"
+
 // If you're going, for example, to use OFB mode, then you don't actually need to supply any decryption functionality
 //#define DECRYPT
 
@@ -75,10 +77,8 @@ ECB decryption support is optional, as Counter mode and CMAC need only AES ECB e
 #include <avr/eeprom.h>
 #endif
 
-#define KEYLEN (16)
-#define KC (KEYLEN >> 2)
+#define KC (KEY_SIZE >> 2)
 #define ROUNDS (KC + 6)
-#define BLOCKSIZE 16
 
 #define LITTLE_ENDIAN_TO_UINT(x) (((uint32_t)*(((uint8_t*)(x)) + 0)) | (((uint32_t)*(((uint8_t*)(x)) + 1)) << 8) | (((uint32_t)*(((uint8_t*)(x)) + 2)) << 16) | (((uint32_t)*(((uint8_t*)(x)) + 3)) << 24))
 
@@ -916,19 +916,19 @@ void decrypt_ECB(uint8_t* block) {
 }
 #endif
 
-static uint8_t iv_block[BLOCKSIZE];
+static uint8_t iv_block[BLOCK_SIZE];
 static uint8_t iv_pos;
 
 void init_OFB(uint8_t* iv) {
 	memcpy(iv_block, iv, sizeof(iv_block));
-	iv_pos = BLOCKSIZE + 1; // force an initial restart
+	iv_pos = BLOCK_SIZE + 1; // force an initial restart
 }
 
 // Turns out that for OFB mode, we can encrypt and decrypt with the exact same method.
 // This method allows for streaming OFB mode. You can call this over and over
 // after calling init_OFB to initialize things.
 uint8_t encrypt_OFB_byte(uint8_t data) {
-	if (iv_pos >= BLOCKSIZE) {
+	if (iv_pos >= BLOCK_SIZE) {
 		// restart
 		encrypt_ECB(iv_block);
 		iv_pos = 0;
@@ -955,60 +955,60 @@ uint8_t leftShiftBlock(uint8_t* ptr, size_t block_length) {
 
 // perform an AES CMAC signature on the given buffer.
 void CMAC(uint8_t *buf, size_t buf_length, uint8_t *sigbuf) {
-	uint8_t kn[BLOCKSIZE];
-	memset(kn, 0, BLOCKSIZE); // start with 0.
+	uint8_t kn[BLOCK_SIZE];
+	memset(kn, 0, BLOCK_SIZE); // start with 0.
 	encrypt_ECB(kn);
 
 	// First, figure out k1. That's a left-shift of "k0",
 	// and if the top bit of k0 was 1, we XOR with RB.
 	uint8_t save_carry = (kn[0] & 0x80) != 0;
-	leftShiftBlock(kn, BLOCKSIZE);
+	leftShiftBlock(kn, BLOCK_SIZE);
 	if (save_carry)
-		kn[BLOCKSIZE - 1] ^= RB;
+		kn[BLOCK_SIZE - 1] ^= RB;
 
-	if (buf_length % BLOCKSIZE) {
+	if (buf_length % BLOCK_SIZE) {
 		// We must now make k2, which is just the same thing again.
 		save_carry = (kn[0] & 0x80) != 0;
-		leftShiftBlock(kn, BLOCKSIZE);
+		leftShiftBlock(kn, BLOCK_SIZE);
 		if (save_carry)
-			kn[BLOCKSIZE - 1] ^= RB;
+			kn[BLOCK_SIZE - 1] ^= RB;
 
 	}
 
-	memset(sigbuf, 0, BLOCKSIZE); // start with 0.
-	for(int i = 0; i < (((buf_length - 1) / BLOCKSIZE) * BLOCKSIZE); i += BLOCKSIZE) {
-		for(int j = 0; j < BLOCKSIZE; j++)
+	memset(sigbuf, 0, BLOCK_SIZE); // start with 0.
+	for(int i = 0; i < (((buf_length - 1) / BLOCK_SIZE) * BLOCK_SIZE); i += BLOCK_SIZE) {
+		for(int j = 0; j < BLOCK_SIZE; j++)
 			sigbuf[j] ^= buf[i + j];
 		encrypt_ECB(sigbuf); // Now roll the intermediate value through ECB.
 	}
 
 	// Now we do the last block.
-	uint16_t start = ((buf_length - 1) / BLOCKSIZE) * BLOCKSIZE;
+	uint16_t start = ((buf_length - 1) / BLOCK_SIZE) * BLOCK_SIZE;
 	for(int i = start; i < buf_length; i++)
 		sigbuf[i - start] ^= buf[i];
 
 	// If there's any empty bytes at the end, then xor the first "unused" one with
 	// a trailer byte.
-	if (buf_length - start < BLOCKSIZE)
+	if (buf_length - start < BLOCK_SIZE)
 		sigbuf[buf_length - start] ^= 0x80;
 
 	// Now xor in kn.
-	for(int i = 0; i < BLOCKSIZE; i++)
+	for(int i = 0; i < BLOCK_SIZE; i++)
 		sigbuf[i] ^= kn[i];
 
 	encrypt_ECB(sigbuf); // Now roll THAT and the result is the answer.
 }
 
-static uint8_t prng_counter[BLOCKSIZE];
-static uint8_t prng_block[BLOCKSIZE];
-static uint8_t prng_key[KEYLEN];
+static uint8_t prng_counter[BLOCK_SIZE];
+static uint8_t prng_block[BLOCK_SIZE];
+static uint8_t prng_key[KEY_SIZE];
 #define EEPROM_SEED_LOCATION ((uint8_t*)(0))
 
 // This gets called at initialization time with some sort
 // of unique data per instance (the chip serial number).
 // We will turn that into the PRNG key.
 void PRNG_init(uint8_t *seed_buf, size_t seed_len) {
-	uint8_t temp_key[KEYLEN];
+	uint8_t temp_key[KEY_SIZE];
 	memset(temp_key, 0, sizeof(temp_key));
 	setKey(temp_key);
 	CMAC(seed_buf, seed_len, prng_key);
@@ -1054,7 +1054,7 @@ int main(int argc, char** argv) {
 	}
 	printf("\n");
 
-	uint8_t sig[BLOCKSIZE];
+	uint8_t sig[BLOCK_SIZE];
 	//uint8_t msg[] = {0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93, 0x17, 0x2a,
 	//	0xae, 0x2d, 0x8a, 0x57, 0x1e, 0x03, 0xac, 0x9c, 0x9e, 0xb7, 0x6f, 0xac, 0x45, 0xaf, 0x8e, 0x51,
 	//	0x30, 0xc8, 0x1c, 0x46, 0xa3, 0x5c, 0xe4, 0x11 };
@@ -1062,7 +1062,7 @@ int main(int argc, char** argv) {
 	
 	CMAC(msg, sizeof(msg), sig);
 
-	for(int i = 0; i < BLOCKSIZE; i++) {
+	for(int i = 0; i < BLOCK_SIZE; i++) {
 		if (i != 0) printf(" ");
 		printf("%02x", sig[i]);
 	}
@@ -1072,7 +1072,7 @@ int main(int argc, char** argv) {
 	uint8_t msg2[] = { 0x57, 0xca, 0x55, 0x19, 0xce, 0x40, 0xf2, 0x0d, 0xf3, 0x16, 0xa4, 0xa5, 0x1b, 0xdb, 0x37, 0xb0, 0x62, 0x00, 0xd2, 0x91, 0xce, 0x51, 0xad, 0x58, 0x83, 0xf7, 0x2e, 0x8f, 0x0b, 0x62, 0xec, 0x77 };
 	CMAC(msg2, sizeof(msg2), sig);
 
-	for(int i = 0; i < BLOCKSIZE; i++) {
+	for(int i = 0; i < BLOCK_SIZE; i++) {
 		if (i != 0) printf(" ");
 		printf("%02x", sig[i]);
 	}

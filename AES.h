@@ -25,8 +25,8 @@ ECB decryption support is optional, as OFB mode and CMAC need only AES ECB encry
 #include <stdint.h>
 #include <stdlib.h>
 
-#define KEY_SIZE 16
-#define BLOCK_SIZE 16
+#define KEY_SIZE (16)
+#define BLOCK_SIZE (16)
 
 void setKey(uint8_t* key);
 void encrypt_ECB(uint8_t* block);
@@ -43,3 +43,7 @@ void CMAC(uint8_t *buf, size_t buf_length, uint8_t *sigbuf);
 
 // generate random numbers using AES CMAC with a seed periodically saved to EEPROM.
 void PRNG(uint8_t *buf, size_t buf_length);
+
+// Initialize the PRNG key with a buffer of per-instance uniqueness
+// (we'll use the chip serial information)
+void PRNG_init(uint8_t *seed_buf, size_t seed_len);
