@@ -60,14 +60,14 @@ volatile uint8_t ir_frame_good;
 char *myname[MAX_NAME_SIZE];
 
 ISR(USARTC0_DRE_vect) {
-        if (user_tx_head == user_tx_tail) {
-                // the transmit queue is empty.
-                USARTC0.CTRLA &= ~USART_DREINTLVL_gm; // disable the TX interrupt.
-                //USARTC0.CTRLA |= USART_DREINTLVL_OFF_gc; // redundant - off is a zero value
-                return;
-        }
-        USARTC0.DATA = user_tx_buf[user_tx_tail];
-        if (++user_tx_tail == sizeof(user_tx_buf)) user_tx_tail = 0; // point to the next char
+	if (user_tx_head == user_tx_tail) {
+		// the transmit queue is empty.
+		USARTC0.CTRLA &= ~USART_DREINTLVL_gm; // disable the TX interrupt.
+		//USARTC0.CTRLA |= USART_DREINTLVL_OFF_gc; // redundant - off is a zero value
+		return;
+	}
+	USARTC0.DATA = user_tx_buf[user_tx_tail];
+	if (++user_tx_tail == sizeof(user_tx_buf)) user_tx_tail = 0; // point to the next char
 }
 
 // For the user port, just gather characters into the input buffer.
@@ -81,14 +81,14 @@ ISR(USARTC0_RXC_vect) {
 }
 
 ISR(USARTD0_DRE_vect) {
-        if (ir_tx_head == ir_tx_tail) {
-                // the transmit queue is empty.
-                USARTD0.CTRLA &= ~USART_DREINTLVL_gm; // disable the TX interrupt.
-                //USARTD0.CTRLA |= USART_DREINTLVL_OFF_gc; // redundant - off is a zero value
-                return;
-        }
-        USARTD0.DATA = ir_tx_buf[ir_tx_tail];
-        if (++ir_tx_tail == sizeof(ir_tx_buf)) ir_tx_tail = 0; // point to the next char
+	if (ir_tx_head == ir_tx_tail) {
+		// the transmit queue is empty.
+		USARTD0.CTRLA &= ~USART_DREINTLVL_gm; // disable the TX interrupt.
+		//USARTD0.CTRLA |= USART_DREINTLVL_OFF_gc; // redundant - off is a zero value
+		return;
+	}
+	USARTD0.DATA = ir_tx_buf[ir_tx_tail];
+	if (++ir_tx_tail == sizeof(ir_tx_buf)) ir_tx_tail = 0; // point to the next char
 }
 
 // For the IR port, use the DLE protocol to gather frames, then mark them as good.
@@ -142,43 +142,43 @@ static uint16_t user_rx_char() {
 }
 
 static inline void ir_tx_char(uint8_t c) {
-        int buf_in_use;
-        do {
-                ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-                        buf_in_use = ir_tx_head - ir_tx_tail;
-                }
-                if (buf_in_use < 0) buf_in_use += sizeof(ir_tx_buf);
-                wdt_reset(); // we might be waiting a while.
-        } while (buf_in_use >= sizeof(ir_tx_buf) - 2) ; // wait for room in the transmit buffer
+	int buf_in_use;
+	do {
+		ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+			buf_in_use = ir_tx_head - ir_tx_tail;
+		}
+		if (buf_in_use < 0) buf_in_use += sizeof(ir_tx_buf);
+		wdt_reset(); // we might be waiting a while.
+	} while (buf_in_use >= sizeof(ir_tx_buf) - 2) ; // wait for room in the transmit buffer
 
-        ir_tx_buf[ir_tx_head] = c;
-        ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-                // this needs to be atomic, because an intermediate state is tx_buf_head
-                // pointing *beyond* the end of the buffer.
-                if (++ir_tx_head == sizeof(ir_tx_buf)) ir_tx_head = 0; // point to the next free spot in the tx buffer
-        }
-        //USARTD0.CTRLA &= ~USART_DREINTLVL_gm; // this is redundant - it was already 0
-        USARTD0.CTRLA |= USART_DREINTLVL_LO_gc; // enable the TX interrupt. If it was disabled, then it will trigger one now.
+	ir_tx_buf[ir_tx_head] = c;
+	ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+		// this needs to be atomic, because an intermediate state is tx_buf_head
+		// pointing *beyond* the end of the buffer.
+		if (++ir_tx_head == sizeof(ir_tx_buf)) ir_tx_head = 0; // point to the next free spot in the tx buffer
+	}
+	//USARTD0.CTRLA &= ~USART_DREINTLVL_gm; // this is redundant - it was already 0
+	USARTD0.CTRLA |= USART_DREINTLVL_LO_gc; // enable the TX interrupt. If it was disabled, then it will trigger one now.
 }
 
 static inline void user_tx_char(uint8_t c) {
-        int buf_in_use;
-        do {
-                ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-                        buf_in_use = user_tx_head - user_tx_tail;
-                }
-                if (buf_in_use < 0) buf_in_use += sizeof(user_tx_buf);
-                wdt_reset(); // we might be waiting a while.
-        } while (buf_in_use >= sizeof(user_tx_buf) - 2) ; // wait for room in the transmit buffer
+	int buf_in_use;
+	do {
+		ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+			buf_in_use = user_tx_head - user_tx_tail;
+		}
+		if (buf_in_use < 0) buf_in_use += sizeof(user_tx_buf);
+		wdt_reset(); // we might be waiting a while.
+	} while (buf_in_use >= sizeof(user_tx_buf) - 2) ; // wait for room in the transmit buffer
 
-        user_tx_buf[user_tx_head] = c;
-        ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-                // this needs to be atomic, because an intermediate state is tx_buf_head
-                // pointing *beyond* the end of the buffer.
-                if (++user_tx_head == sizeof(user_tx_buf)) user_tx_head = 0; // point to the next free spot in the tx buffer
-        }
-        //USARTC0.CTRLA &= ~USART_DREINTLVL_gm; // this is redundant - it was already 0
-        USARTC0.CTRLA |= USART_DREINTLVL_LO_gc; // enable the TX interrupt. If it was disabled, then it will trigger one now.
+	user_tx_buf[user_tx_head] = c;
+	ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+		// this needs to be atomic, because an intermediate state is tx_buf_head
+		// pointing *beyond* the end of the buffer.
+		if (++user_tx_head == sizeof(user_tx_buf)) user_tx_head = 0; // point to the next free spot in the tx buffer
+	}
+	//USARTC0.CTRLA &= ~USART_DREINTLVL_gm; // this is redundant - it was already 0
+	USARTC0.CTRLA |= USART_DREINTLVL_LO_gc; // enable the TX interrupt. If it was disabled, then it will trigger one now.
 }
 
 // Queue up an IR frame for transmission
@@ -235,11 +235,11 @@ void __ATTR_NORETURN__ main(void) {
 	OSC.CTRL &= ~(OSC_RC2MEN_bm); // we're done with the 2 MHz osc.
 
 #if 0
-        _PROTECTED_WRITE(WDT.CTRL, WDT_PER_256CLK_gc | WDT_ENABLE_bm | WDT_CEN_bm);
-        while(WDT.STATUS & WDT_SYNCBUSY_bm) ; // wait for it to take
-        // We don't want a windowed watchdog.
-        _PROTECTED_WRITE(WDT.WINCTRL, WDT_WCEN_bm);
-        while(WDT.STATUS & WDT_SYNCBUSY_bm) ; // wait for it to take
+	_PROTECTED_WRITE(WDT.CTRL, WDT_PER_256CLK_gc | WDT_ENABLE_bm | WDT_CEN_bm);
+	while(WDT.STATUS & WDT_SYNCBUSY_bm) ; // wait for it to take
+	// We don't want a windowed watchdog.
+	_PROTECTED_WRITE(WDT.WINCTRL, WDT_WCEN_bm);
+	while(WDT.STATUS & WDT_SYNCBUSY_bm) ; // wait for it to take
 #endif
 
 	// Leave on only the parts of the chip we actually use
@@ -250,10 +250,10 @@ void __ATTR_NORETURN__ main(void) {
 	PR.PRPD = PR_TC5_bm;
 
 	PORTC.OUTSET = _BV(3); // TXD defaults to high, but we really don't use it anyway
-        PORTC.DIRSET = _BV(3); // TXD is an output.
+	PORTC.DIRSET = _BV(3); // TXD is an output.
 	PORTD.PIN3CTRL = PORT_INVEN_bm; // invert the TX pin.
 	PORTD.OUTSET = _BV(3); // TXD defaults to high, but we really don't use it anyway
-        PORTD.DIRSET = _BV(3); // TXD is an output.
+	PORTD.DIRSET = _BV(3); // TXD is an output.
 
 	XCL.CTRLA = XCL_PORTSEL_PD_gc; // port D, 2 independent LUT, no LUT out pins
 	XCL.CTRLB = XCL_IN3SEL0_bm | XCL_IN2SEL0_bm; // LUT 1 inputs from XCL
@@ -263,24 +263,24 @@ void __ATTR_NORETURN__ main(void) {
 	XCL.CTRLF = XCL_TCMODE_PWM_gc; // PWM counter mode
 	XCL.CTRLG = 0; // no event action
 	XCL.INTCTRL = 0; // no interrupts
-	XCL.PERCAPTL = 111; // 36 kHz
-	XCL.CMPL = 111/2; // 50% (ish) duty cycle
+	XCL.PERCAPTL = 110; // 36 kHz
+	XCL.CMPL = 110/2; // 50% (ish) duty cycle
 
-        // 9600 baud async serial, 8N1, low priority interrupt on receive
-        USARTC0.CTRLA = USART_DRIE_bm | USART_RXCINTLVL_LO_gc;
-        USARTC0.CTRLB = USART_RXEN_bm | USART_TXEN_bm;
-        USARTC0.CTRLC = USART_CHSIZE_8BIT_gc;
-        USARTC0.CTRLD = 0;
-        USARTC0.BAUDCTRLA = BSEL96 & 0xff;
-        USARTC0.BAUDCTRLB = (BSEL96 >> 8) | (BSCALE96 << USART_BSCALE_gp);
+	// 9600 baud async serial, 8N1, low priority interrupt on receive
+	USARTC0.CTRLA = USART_DRIE_bm | USART_RXCINTLVL_LO_gc;
+	USARTC0.CTRLB = USART_RXEN_bm | USART_TXEN_bm;
+	USARTC0.CTRLC = USART_CHSIZE_8BIT_gc;
+	USARTC0.CTRLD = 0;
+	USARTC0.BAUDCTRLA = BSEL96 & 0xff;
+	USARTC0.BAUDCTRLB = (BSEL96 >> 8) | (BSCALE96 << USART_BSCALE_gp);
 
-        // 4800 baud async serial, 8N1, low priority interrupt on receive, XCL on TX
-        USARTD0.CTRLA = USART_DRIE_bm | USART_RXCINTLVL_LO_gc;
-        USARTD0.CTRLB = USART_RXEN_bm | USART_TXEN_bm;
-        USARTD0.CTRLC = USART_CHSIZE_8BIT_gc;
-        USARTD0.CTRLD = USART_DECTYPE_SDATA_gc | USART_LUTACT_TX_gc;
-        USARTD0.BAUDCTRLA = BSEL48 & 0xff;
-        USARTD0.BAUDCTRLB = (BSEL48 >> 8) | (BSCALE48 << USART_BSCALE_gp);
+	// 4800 baud async serial, 8N1, low priority interrupt on receive, XCL on TX
+	USARTD0.CTRLA = USART_DRIE_bm | USART_RXCINTLVL_LO_gc;
+	USARTD0.CTRLB = USART_RXEN_bm | USART_TXEN_bm;
+	USARTD0.CTRLC = USART_CHSIZE_8BIT_gc;
+	USARTD0.CTRLD = USART_DECTYPE_SDATA_gc | USART_LUTACT_TX_gc;
+	USARTD0.BAUDCTRLA = BSEL48 & 0xff;
+	USARTD0.BAUDCTRLB = (BSEL48 >> 8) | (BSCALE48 << USART_BSCALE_gp);
 
 	ir_rx_ptr = 0;
 	ir_frame_good = 0;
