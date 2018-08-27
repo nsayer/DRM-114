@@ -24,8 +24,11 @@
 #include <avr/interrupt.h>
 #include <avr/io.h>
 #include <avr/wdt.h>
+#include <avr/pgmspace.h>
 #include <util/atomic.h>
+#include <stddef.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 #include "AES.h"
 #include "crypto.h"
@@ -57,7 +60,25 @@ volatile uint16_t user_rx_head, user_rx_tail;
 volatile uint8_t ir_frame_good;
 
 #define MAX_NAME_SIZE (16)
-char *myname[MAX_NAME_SIZE];
+char myname[MAX_NAME_SIZE];
+char talkname[MAX_NAME_SIZE];
+
+#define MAX_INPUT_LINE (80)
+char input_line[MAX_INPUT_LINE];
+uint16_t input_line_pos;
+
+uint8_t last_ir_frame[MAX_IR_FRAME];
+size_t last_ir_frame_len;
+
+// The types of messages allowed.
+// Broadcast text
+#define MSG_BROADCAST (0)
+// Directed text
+#define MSG_DIRECTED (1)
+// Broadcast attention
+#define MSG_ATT_BROADCAST (2)
+// Directed attention
+#define MSG_ATT_DIRECTED (3)
 
 ISR(USARTC0_DRE_vect) {
 	if (user_tx_head == user_tx_tail) {
@@ -85,6 +106,7 @@ ISR(USARTD0_DRE_vect) {
 		// the transmit queue is empty.
 		USARTD0.CTRLA &= ~USART_DREINTLVL_gm; // disable the TX interrupt.
 		//USARTD0.CTRLA |= USART_DREINTLVL_OFF_gc; // redundant - off is a zero value
+		USARTD0.CTRLB |= USART_RXEN_bm; // turn the receiver back on
 		return;
 	}
 	USARTD0.DATA = ir_tx_buf[ir_tx_tail];
@@ -158,6 +180,7 @@ static inline void ir_tx_char(uint8_t c) {
 		if (++ir_tx_head == sizeof(ir_tx_buf)) ir_tx_head = 0; // point to the next free spot in the tx buffer
 	}
 	//USARTD0.CTRLA &= ~USART_DREINTLVL_gm; // this is redundant - it was already 0
+	USARTD0.CTRLB &= ~USART_RXEN_bm; // turn the receiver off while we're transmitting.
 	USARTD0.CTRLA |= USART_DREINTLVL_LO_gc; // enable the TX interrupt. If it was disabled, then it will trigger one now.
 }
 
@@ -181,6 +204,12 @@ static inline void user_tx_char(uint8_t c) {
 	USARTC0.CTRLA |= USART_DREINTLVL_LO_gc; // enable the TX interrupt. If it was disabled, then it will trigger one now.
 }
 
+static void print_pstring(const char * msg) {
+	for(int i = 0; i < strlen_P(msg); i++) {
+		user_tx_char(pgm_read_byte(&msg[i]));
+	}
+}
+
 // Queue up an IR frame for transmission
 static void ir_tx_frame(uint8_t *buf, size_t len) {
 	ir_tx_char(DLE);
@@ -193,30 +222,191 @@ static void ir_tx_frame(uint8_t *buf, size_t len) {
 	ir_tx_char(ETX);
 }
 
-static void print_message(uint8_t *buf);
+static void print_string(const char *str) {
+	for(int i = 0; i < strlen(str); i++)
+		user_tx_char(str[i]);
+}
+
+static void print_prompt() {
+	print_string(talkname);
+	user_tx_char('>');
+	user_tx_char(' ');
+}
+
+static void print_achtung(uint8_t *buf) {
+	user_tx_char('\r'); // no LF - we will over-print the input buffer
+	user_tx_char(7); // BEL
+	print_string((char *)buf); // the sender's name
+	print_pstring(PSTR(" wants attention."));
+	int remaining = input_line_pos - (strlen((char *)buf) + 17);
+	for(int i = 0; i < remaining; i++) user_tx_char(' '); // overwrite the input line
+	print_pstring(PSTR("\r\n"));
+	print_prompt();
+	for(int i = 0; i < input_line_pos; i++) user_tx_char(input_line[i]); // reprint the user's input line
+}
+
+static void print_message(uint8_t *buf) {
+	user_tx_char('\r'); // no LF - we will over-print the input buffer
+	print_string((char *)buf); // the sender's name
+	user_tx_char(':');
+	user_tx_char(' ');
+	print_string((char *)buf + strlen((char *)buf) + 1);
+	int remaining = input_line_pos - (strlen((char *)buf) + strlen((char *)buf + strlen((char *)buf) + 1) + 2);
+	for(int i = 0; i < remaining; i++) user_tx_char(' '); // overwrite the input line
+	print_pstring(PSTR("\r\n"));
+	print_prompt();
+	for(int i = 0; i < input_line_pos; i++) user_tx_char(input_line[i]); // reprint the user's input line
+}
+
 static void handle_ir_frame(uint8_t *buf, size_t len) {
 	uint8_t pt_msg[MAX_IR_FRAME];
 	size_t pt_size = MAX_IR_FRAME;
+	size_t pos;
 	if (!decrypt_message(buf, len, pt_msg, &pt_size)) return; // bad decrypt - ignore
 	if (pt_size == 0) return; // empty message
 	switch(pt_msg[0]) {
-		case 0: // broadcast message
+		case MSG_BROADCAST: // broadcast message
 			// After the type byte, there's a null-terminated source identity.
 			// after that is the null-terminated message.
 			pt_msg[len] = 0; // null terminate
 			print_message(pt_msg + 1);
 			break;
-		case 1: // directed message
+		case MSG_DIRECTED: // directed message
 			// After the type byte, there's a null-terminated dest identity.
 			// after that, there is the null-terminated source identity.
 			// after that is the null-terminated message.
 			if (strcasecmp((const char *)myname, (const char *)pt_msg + 1)) return; // not for me
-			unsigned int pos = strlen((const char *)pt_msg + 1) + 2; // +1 for the null, +1 for the type byte
+			pos = strlen((const char *)pt_msg + 1) + 2; // +1 for the null, +1 for the type byte
 			pt_msg[len] = 0; // null terminate
 			print_message(pt_msg + pos);
 			break;
+		case MSG_ATT_BROADCAST: // broadcast attention
+			// After the type byte, there's a null-terminated source idenity.
+			print_achtung(pt_msg + 1);
+			break;
+		case MSG_ATT_DIRECTED: // directed attention
+			// After the type byte, there's a null-terminated dest idenity.
+			// after that, there is the null-terminated source identity.
+			if (strcasecmp((const char *)myname, (const char *)pt_msg + 1)) return; // not for me
+			pos = strlen((const char *)pt_msg + 1) + 2; // +1 for the null, +1 for the type byte
+			pt_msg[len] = 0; // null terminate
+			print_achtung(pt_msg + pos);
+			break;
 	}
 			
+}
+
+static void print_help() {
+	print_pstring(PSTR("Help:\r\n"));
+	print_pstring(PSTR(" /n [name]     Sets your name.\r\n"));
+	print_pstring(PSTR(" /t [name]     Sets the name of your talk partner. Omit name to send broadcasts.\r\n"));
+	print_pstring(PSTR(" /r            Repeats the last transmission.\r\n"));
+	print_pstring(PSTR(" /a            Requests attention (from everyone or current talk partner).\r\n"));
+	print_pstring(PSTR(" /h or /?      Prints this help.\r\n"));
+	print_pstring(PSTR(" Any other line of text is transmitted to either everyone or your talk partner\r\n"));
+}
+
+static const char *getarg(const char *input_line) {
+	// skip to the first space, then skip past spaces.
+	int count;
+	for(count = 0; input_line[count] != ' '; count++)
+		if (input_line[count] == 0) return NULL; // ran off the end
+	for(; input_line[count] == ' '; count++)
+		if (input_line[count] == 0) return NULL; // ran off the end
+	return input_line + count;
+}
+
+static void handle_line() {
+	uint8_t pt_buf[MAX_IR_FRAME];
+	size_t pos;
+	if (strlen(input_line) == 0) return;
+	if (input_line[0] == '/') {
+		const char *arg = getarg(input_line);
+		switch(input_line[1]) {
+			case 'h':
+			case 'H':
+			case '?':
+				print_help();
+				return;
+			case 'n':
+			case 'N':
+				if (arg != NULL) {
+					if (strlen(arg) > MAX_NAME_SIZE - 1) {
+						print_pstring(PSTR("Name too long.\r\n"));
+						return;
+					}
+					strcpy(myname, arg);
+					print_pstring(PSTR("Your name is now "));
+					print_string(myname);
+					print_pstring(PSTR(".\r\n"));
+				}
+				print_pstring(PSTR("Your name is "));
+				print_string(myname);
+				print_pstring(PSTR(".\r\n"));
+				return;
+			case 't':
+			case 'T':
+				if (arg == NULL) {
+					talkname[0] = 0; // remove it
+					print_pstring(PSTR("Broadcasting.\r\n"));
+				} else {
+					if (strlen(arg) > MAX_NAME_SIZE - 1) {
+						print_pstring(PSTR("Name too long.\r\n"));
+						return;
+					}
+					strcpy(talkname, arg);
+					print_pstring(PSTR("Talking to "));
+					print_string(talkname);
+					print_pstring(PSTR(".\r\n"));
+				}
+				return;
+			case 'r':
+			case 'R':
+				ir_tx_frame(last_ir_frame, last_ir_frame_len);
+				return;
+			case 'a':
+			case 'A':
+				if (strlen(talkname) == 0) {
+					// broadcast
+					pt_buf[0] = MSG_ATT_BROADCAST;
+					strcpy((char *)pt_buf + 1, myname);
+					pos = strlen(myname) + 2;
+				} else {
+					pt_buf[0] = MSG_ATT_DIRECTED;
+					strcpy((char *)pt_buf + 1, talkname);
+					strcpy((char *)pt_buf + strlen(talkname) + 2, myname);
+					pos = strlen(myname) + strlen(talkname) + 3;
+					// directed
+				}
+				last_ir_frame_len = sizeof(last_ir_frame);
+				if (!encrypt_message(pt_buf, pos, last_ir_frame, &last_ir_frame_len)) {
+					print_pstring(PSTR("Encrypt error (should never happen).\r\n"));
+					return;
+				}
+				ir_tx_frame(last_ir_frame, last_ir_frame_len);
+				return;
+			default:
+				print_pstring(PSTR("Invalid command. /? for help.\r\n"));
+				return;
+		}
+	}
+	// create new message
+	if (strlen(talkname) > 0) {
+		pt_buf[0] = MSG_DIRECTED;
+		strcpy((char*)pt_buf + 1, talkname);
+		pos = strlen(talkname) + 2; // the null and the type byte
+	} else {
+		pt_buf[0] = MSG_BROADCAST;
+		pos = 1;
+	}
+	strcpy((char *)pt_buf + pos, myname);
+	strcpy((char *)pt_buf + pos + strlen(myname) + 1, input_line);
+	last_ir_frame_len = sizeof(last_ir_frame);
+	if (!encrypt_message(pt_buf, pos + strlen(myname) + strlen(input_line) + 2, last_ir_frame, &last_ir_frame_len)) {
+		print_pstring(PSTR("Encrypt error (should never happen).\r\n"));
+		return;
+	}
+	ir_tx_frame(last_ir_frame, last_ir_frame_len);
 }
 
 void __ATTR_NORETURN__ main(void) {
@@ -235,7 +425,7 @@ void __ATTR_NORETURN__ main(void) {
 	OSC.CTRL &= ~(OSC_RC2MEN_bm); // we're done with the 2 MHz osc.
 
 #if 0
-	_PROTECTED_WRITE(WDT.CTRL, WDT_PER_256CLK_gc | WDT_ENABLE_bm | WDT_CEN_bm);
+	_PROTECTED_WRITE(WDT.CTRL, WDT_PER_256CLK_gc | WDT_ENABLE_bm | WDT_CEN_bm); // 1/4 second
 	while(WDT.STATUS & WDT_SYNCBUSY_bm) ; // wait for it to take
 	// We don't want a windowed watchdog.
 	_PROTECTED_WRITE(WDT.WINCTRL, WDT_WCEN_bm);
@@ -289,20 +479,85 @@ void __ATTR_NORETURN__ main(void) {
 	user_tx_head = user_tx_tail = 0;
 	user_rx_head = user_rx_tail = 0;
 
-	myname[0] = 0; // start empty
+	strcpy_P(myname, PSTR("default"));
+	talkname[0] = 0; // start broadcasting
+	input_line_pos = 0;
 
-	// XXX Read in serial number to initialize PRNG seed
+	// Read in serial number to initialize PRNG seed
+	{
+		unsigned char serial[11];
+		NVM.CMD = NVM_CMD_READ_CALIB_ROW_gc;
+		serial[0] = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, LOTNUM0));
+		serial[1] = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, LOTNUM1));
+		serial[2] = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, LOTNUM2));
+		serial[3] = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, LOTNUM3));
+		serial[4] = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, LOTNUM4));
+		serial[5] = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, LOTNUM5));
+		serial[6] = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, WAFNUM));
+		serial[7] = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, COORDX1));
+		serial[8] = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, COORDX0));
+		serial[9] = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, COORDY1));
+		serial[10] = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, COORDY0));
+		NVM.CMD = NVM_CMD_NO_OPERATION_gc;
+		PRNG_init(serial, sizeof(serial));
+	}
 
 	PMIC.CTRL = PMIC_HILVLEN_bm | PMIC_MEDLVLEN_bm | PMIC_LOLVLEN_bm;
 	sei();
 
-	// XXX Print startup message
+	// Print startup message
+	print_pstring(PSTR("DRM-114\r\n"));
+	print_pstring(PSTR("Copyright 2018 Nick Sayer\r\n"));
+	print_pstring(PSTR("/? for help\r\n"));
+	print_prompt();
 
 	while(1) {
-		// temporary test code - send every input user character out to IR.
+		// Main loop tasks...
+		// 1. Pet the watchdog
+		wdt_reset();
+
+		// 2. Handle incoming IR frames
+		if (ir_frame_good) {
+			// first, save the frame in case another comes in.
+			uint8_t buf[MAX_IR_FRAME];
+			size_t len = ir_rx_ptr;
+			memcpy(buf, (const uint8_t *)ir_tx_buf, len);
+			ir_frame_good = 0; // ACK
+			handle_ir_frame(buf, len);
+			continue;
+		}
+
+		// 3. Handle incoming user chars
 		uint16_t c;
-		while((c = user_rx_char()) == 0xffff);
-		user_tx_char((uint8_t)c);
-		ir_tx_char((uint8_t)c);
+		if ((c = user_rx_char()) != 0xffff) {
+			c &= 0x7f;
+			switch(c) {
+				case 8: // BS
+				case 0x7f: // DEL
+					if (input_line_pos == 0) continue; // can't backspace past beinning
+					input_line_pos--;
+					user_tx_char(0x8);
+					user_tx_char(' ');
+					user_tx_char(0x8);
+					continue;
+				case 11: // NL
+				case 13: // CR
+					user_tx_char(13); // CR
+					user_tx_char(11); // LF
+					input_line[input_line_pos] = 0; // null terminate
+					handle_line();
+					print_prompt();
+					input_line_pos = 0;
+					continue;
+			}
+			if (c < 32) continue; // ignore all other control chars
+			if (input_line_pos >= sizeof(input_line)) {
+				user_tx_char(7); // BEL
+				continue;
+			}
+			input_line[input_line_pos++] = (char)c;
+			user_tx_char((uint8_t)c);
+			continue;
+		}
 	}
 }
