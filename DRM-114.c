@@ -40,11 +40,6 @@
 #define BSEL48 (12)
 #define BSCALE48 (5)
 
-// A start of frame is DLE+STX. An end-of-frame is DLE+ETX. Any organic DLE char is repeated.
-#define DLE (0x70)
-#define STX (0x71)
-#define ETX (0x72)
-
 #define MAX_IR_FRAME (128)
 volatile uint8_t ir_rx_buf[MAX_IR_FRAME];
 volatile uint8_t ir_tx_buf[MAX_IR_FRAME];
@@ -79,6 +74,16 @@ size_t last_ir_frame_len;
 #define MSG_ATT_BROADCAST (2)
 // Directed attention
 #define MSG_ATT_DIRECTED (3)
+
+// Special characters
+#define STX (2)
+#define ETX (3)
+#define BEL (7)
+#define BS (8)
+#define NL (10)
+#define CR (13)
+#define DLE (16)
+#define DEL (127)
 
 ISR(USARTC0_DRE_vect) {
 	if (user_tx_head == user_tx_tail) {
@@ -153,7 +158,7 @@ rx_dle:
 static uint16_t user_rx_char() {
 	uint16_t out;
 	ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
-		if (user_rx_head == user_tx_head)
+		if (user_rx_head == user_rx_tail)
 			out = 0xffff;
 		else {
 			out = user_rx_buf[user_rx_tail];
@@ -233,27 +238,30 @@ static void print_prompt() {
 	user_tx_char(' ');
 }
 
+// XXX If we had a (visible) hardware LED, then it would be good to blink it.
 static void print_achtung(uint8_t *buf) {
-	user_tx_char('\r'); // no LF - we will over-print the input buffer
-	user_tx_char(7); // BEL
+	user_tx_char(CR); // no NL - we will over-print the input buffer
+	user_tx_char(BEL); // BEL
 	print_string((char *)buf); // the sender's name
 	print_pstring(PSTR(" wants attention."));
 	int remaining = input_line_pos - (strlen((char *)buf) + 17);
 	for(int i = 0; i < remaining; i++) user_tx_char(' '); // overwrite the input line
-	print_pstring(PSTR("\r\n"));
+	user_tx_char(CR);
+	user_tx_char(NL);
 	print_prompt();
 	for(int i = 0; i < input_line_pos; i++) user_tx_char(input_line[i]); // reprint the user's input line
 }
 
 static void print_message(uint8_t *buf) {
-	user_tx_char('\r'); // no LF - we will over-print the input buffer
+	user_tx_char(CR); // no NL - we will over-print the input buffer
 	print_string((char *)buf); // the sender's name
 	user_tx_char(':');
 	user_tx_char(' ');
 	print_string((char *)buf + strlen((char *)buf) + 1);
 	int remaining = input_line_pos - (strlen((char *)buf) + strlen((char *)buf + strlen((char *)buf) + 1) + 2);
 	for(int i = 0; i < remaining; i++) user_tx_char(' '); // overwrite the input line
-	print_pstring(PSTR("\r\n"));
+	user_tx_char(CR);
+	user_tx_char(NL);
 	print_prompt();
 	for(int i = 0; i < input_line_pos; i++) user_tx_char(input_line[i]); // reprint the user's input line
 }
@@ -506,7 +514,7 @@ void __ATTR_NORETURN__ main(void) {
 	sei();
 
 	// Print startup message
-	print_pstring(PSTR("DRM-114\r\n"));
+	print_pstring(PSTR("\r\n\r\nDRM-114\r\n"));
 	print_pstring(PSTR("Copyright 2018 Nick Sayer\r\n"));
 	print_pstring(PSTR("/? for help\r\n"));
 	print_prompt();
@@ -536,14 +544,14 @@ void __ATTR_NORETURN__ main(void) {
 				case 0x7f: // DEL
 					if (input_line_pos == 0) continue; // can't backspace past beinning
 					input_line_pos--;
-					user_tx_char(0x8);
+					user_tx_char(BS);
 					user_tx_char(' ');
-					user_tx_char(0x8);
+					user_tx_char(BS);
 					continue;
 				case 11: // NL
 				case 13: // CR
-					user_tx_char(13); // CR
-					user_tx_char(11); // LF
+					user_tx_char(CR); // CR
+					user_tx_char(NL); // NL
 					input_line[input_line_pos] = 0; // null terminate
 					handle_line();
 					print_prompt();
@@ -552,7 +560,7 @@ void __ATTR_NORETURN__ main(void) {
 			}
 			if (c < 32) continue; // ignore all other control chars
 			if (input_line_pos >= sizeof(input_line)) {
-				user_tx_char(7); // BEL
+				user_tx_char(BEL); // BEL
 				continue;
 			}
 			input_line[input_line_pos++] = (char)c;
