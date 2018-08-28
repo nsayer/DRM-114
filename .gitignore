@@ -1,4 +1,7 @@
 key_protection.c
+*.java
+*.jar
+*.class
 
 # Object files
 *.o

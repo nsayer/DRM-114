@@ -215,8 +215,19 @@ static void print_pstring(const char * msg) {
 	}
 }
 
+//#define DEBUG 1
+#ifdef DEBUG
+const char hexes[] PROGMEM = "0123456789abcdef";
+#endif
+
 // Queue up an IR frame for transmission
 static void ir_tx_frame(uint8_t *buf, size_t len) {
+#ifdef DEBUG
+	for(int j = 0; j < len; j++) {
+		user_tx_char(pgm_read_byte(&(hexes[buf[j] >> 4])));
+		user_tx_char(pgm_read_byte(&(hexes[buf[j] & 0xf])));
+	}
+#endif
 	ir_tx_char(DLE);
 	ir_tx_char(STX);
 	for(int i = 0; i < len; i++) {
@@ -307,11 +318,11 @@ static void handle_ir_frame(uint8_t *buf, size_t len) {
 static void print_help() {
 	print_pstring(PSTR("Help:\r\n"));
 	print_pstring(PSTR(" /n [name]     Sets your name.\r\n"));
-	print_pstring(PSTR(" /t [name]     Sets the name of your talk partner. Omit name to send broadcasts.\r\n"));
+	print_pstring(PSTR(" /t [name]     Sets the name of your talk partner. Omit name for broadcasts.\r\n"));
 	print_pstring(PSTR(" /r            Repeats the last transmission.\r\n"));
 	print_pstring(PSTR(" /a            Requests attention (from everyone or current talk partner).\r\n"));
 	print_pstring(PSTR(" /h or /?      Prints this help.\r\n"));
-	print_pstring(PSTR(" Any other line of text is transmitted to either everyone or your talk partner\r\n"));
+	print_pstring(PSTR(" Any other line of text is transmitted to either everyone or your talk partner.\r\n"));
 }
 
 static const char *getarg(const char *input_line) {
@@ -347,6 +358,7 @@ static void handle_line() {
 					print_pstring(PSTR("Your name is now "));
 					print_string(myname);
 					print_pstring(PSTR(".\r\n"));
+					return;
 				}
 				print_pstring(PSTR("Your name is "));
 				print_string(myname);
@@ -370,6 +382,10 @@ static void handle_line() {
 				return;
 			case 'r':
 			case 'R':
+				if (last_ir_frame_len == 0) {
+					print_pstring(PSTR("There is nothing to repeat.\r\n"));
+					return;
+				}
 				ir_tx_frame(last_ir_frame, last_ir_frame_len);
 				return;
 			case 'a':
@@ -483,6 +499,7 @@ void __ATTR_NORETURN__ main(void) {
 	ir_rx_ptr = 0;
 	ir_frame_good = 0;
 	ir_tx_head = ir_tx_tail = 0;
+	last_ir_frame_len = 0;
 
 	user_tx_head = user_tx_tail = 0;
 	user_rx_head = user_rx_tail = 0;
