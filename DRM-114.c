@@ -90,11 +90,13 @@ size_t last_ir_frame_len;
 #define DLE (16)
 #define DEL (127)
 
+// This keeps the millisecond counter
 ISR(TCC4_OVF_vect) {
 	TCC4.INTFLAGS = TC4_OVFIF_bm; // ACK
 	ticks++;
 }
 
+// TX complete for user port. This is a simple interrupt driven transmit buffer.
 ISR(USARTC0_DRE_vect) {
 	if (user_tx_head == user_tx_tail) {
 		// the transmit queue is empty.
@@ -106,7 +108,7 @@ ISR(USARTC0_DRE_vect) {
 	if (++user_tx_tail == sizeof(user_tx_buf)) user_tx_tail = 0; // point to the next char
 }
 
-// For the user port, just gather characters into the input buffer.
+// RX complete for the user port. Just gather characters into the input buffer.
 ISR(USARTC0_RXC_vect) {
 	uint8_t c = USARTC0.DATA;
 	int buf_in_use = user_rx_head - user_rx_tail;
@@ -116,6 +118,7 @@ ISR(USARTC0_RXC_vect) {
 	if (++user_rx_head == sizeof(user_rx_buf)) user_rx_head = 0; // point to the next free spot in the rx buffer
 }
 
+// TX complete for IR. This is also just a simple interrupt driven transmit buffer.
 ISR(USARTD0_DRE_vect) {
 	if (ir_tx_head == ir_tx_tail) {
 		// the transmit queue is empty.
@@ -128,7 +131,7 @@ ISR(USARTD0_DRE_vect) {
 	if (++ir_tx_tail == sizeof(ir_tx_buf)) ir_tx_tail = 0; // point to the next char
 }
 
-// For the IR port, use the DLE protocol to gather frames, then mark them as good.
+// RX complete for or the IR port. Use the DLE protocol to gather frames, then mark them as good.
 ISR(USARTD0_RXC_vect) {
 	static uint8_t in_dle = 0;
 	static uint8_t rx_en = 0;
@@ -272,7 +275,7 @@ static void print_achtung(uint8_t *buf) {
 	print_string((char *)buf); // the sender's name
 	print_pstring(PSTR(" wants attention."));
 	int remaining = input_line_pos - (strlen((char *)buf) + 17);
-	for(int i = 0; i < remaining; i++) user_tx_char(' '); // overwrite the input line
+	for(int i = 0; i < remaining + 2; i++) user_tx_char(' '); // overwrite the input line
 	user_tx_char(CR);
 	user_tx_char(NL);
 	print_prompt();
@@ -286,7 +289,7 @@ static void print_message(uint8_t *buf) {
 	user_tx_char(' ');
 	print_string((char *)buf + strlen((char *)buf) + 1);
 	int remaining = input_line_pos - (strlen((char *)buf) + strlen((char *)buf + strlen((char *)buf) + 1) + 2);
-	for(int i = 0; i < remaining; i++) user_tx_char(' '); // overwrite the input line
+	for(int i = 0; i < remaining + 2; i++) user_tx_char(' '); // overwrite the input line
 	user_tx_char(CR);
 	user_tx_char(NL);
 	print_prompt();
@@ -465,13 +468,13 @@ void __ATTR_NORETURN__ main(void) {
 	_PROTECTED_WRITE(CLK.CTRL, CLK_SCLKSEL_PLL_gc); // switch to it
 	OSC.CTRL &= ~(OSC_RC2MEN_bm); // we're done with the 2 MHz osc.
 
-#if 0
+	// Configure the watchdog
+
 	_PROTECTED_WRITE(WDT.CTRL, WDT_PER_256CLK_gc | WDT_ENABLE_bm | WDT_CEN_bm); // 1/4 second
 	while(WDT.STATUS & WDT_SYNCBUSY_bm) ; // wait for it to take
 	// We don't want a windowed watchdog.
 	_PROTECTED_WRITE(WDT.WINCTRL, WDT_WCEN_bm);
 	while(WDT.STATUS & WDT_SYNCBUSY_bm) ; // wait for it to take
-#endif
 
 	// Leave on only the parts of the chip we actually use
 	// So the XCL, timer C4 and the two USARTs.
@@ -497,6 +500,7 @@ void __ATTR_NORETURN__ main(void) {
 	TCC4.INTCTRLB = 0;
 	TCC4.PER = 124; // 125 - 1
 
+	// XCL's job is to modulate the transmit data with a 36 kHz optical carrier.
 	XCL.CTRLA = XCL_PORTSEL_PD_gc; // port D, 2 independent LUT, no LUT out pins
 	XCL.CTRLB = XCL_IN3SEL0_bm | XCL_IN2SEL0_bm; // LUT 1 inputs from XCL
 	XCL.CTRLC = 0; // no delays
