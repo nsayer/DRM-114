@@ -96,7 +96,12 @@ ISR(TCC4_OVF_vect) {
 	ticks++;
 }
 
-// TX complete for user port. This is a simple interrupt driven transmit buffer.
+// TX complete for IR. Turn the IR receiver back on
+ISR(USARTD0_TXC_vect) {
+	USARTD0.CTRLB |= USART_RXEN_bm; // turn the receiver back on
+}
+
+// TX data empty for user port. This is a simple interrupt driven transmit buffer.
 ISR(USARTC0_DRE_vect) {
 	if (user_tx_head == user_tx_tail) {
 		// the transmit queue is empty.
@@ -118,20 +123,19 @@ ISR(USARTC0_RXC_vect) {
 	if (++user_rx_head == sizeof(user_rx_buf)) user_rx_head = 0; // point to the next free spot in the rx buffer
 }
 
-// TX complete for IR. This is also just a simple interrupt driven transmit buffer.
+// TX data empty for IR. This is also just a simple interrupt driven transmit buffer.
 ISR(USARTD0_DRE_vect) {
 	if (ir_tx_head == ir_tx_tail) {
 		// the transmit queue is empty.
 		USARTD0.CTRLA &= ~USART_DREINTLVL_gm; // disable the TX interrupt.
 		//USARTD0.CTRLA |= USART_DREINTLVL_OFF_gc; // redundant - off is a zero value
-		USARTD0.CTRLB |= USART_RXEN_bm; // turn the receiver back on
 		return;
 	}
 	USARTD0.DATA = ir_tx_buf[ir_tx_tail];
 	if (++ir_tx_tail == sizeof(ir_tx_buf)) ir_tx_tail = 0; // point to the next char
 }
 
-// RX complete for or the IR port. Use the DLE protocol to gather frames, then mark them as good.
+// RX complete for the IR port. Use the DLE protocol to gather frames, then mark them as good.
 ISR(USARTD0_RXC_vect) {
 	static uint8_t in_dle = 0;
 	static uint8_t rx_en = 0;
@@ -145,8 +149,7 @@ ISR(USARTD0_RXC_vect) {
 				rx_en = 1; // enable reception
 				break;
 			case ETX:
-				if (ir_rx_ptr > 0)
-					ir_frame_good = 1; // tell the higher level a frame is ready
+				ir_frame_good = 1; // tell the higher level a frame is ready
 				rx_en = 0;
 				break;
 			case DLE:
@@ -512,7 +515,7 @@ void __ATTR_NORETURN__ main(void) {
 	XCL.PERCAPTL = 110; // 36 kHz
 	XCL.CMPL = 110/2; // 50% (ish) duty cycle
 
-	// 9600 baud async serial, 8N1, low priority interrupt on receive
+	// 9600 baud async serial, 8N1, med priority interrupt on receive
 	USARTC0.CTRLA = USART_DRIE_bm | USART_RXCINTLVL_MED_gc;
 	USARTC0.CTRLB = USART_RXEN_bm | USART_TXEN_bm;
 	USARTC0.CTRLC = USART_CHSIZE_8BIT_gc;
@@ -520,8 +523,8 @@ void __ATTR_NORETURN__ main(void) {
 	USARTC0.BAUDCTRLA = BSEL96 & 0xff;
 	USARTC0.BAUDCTRLB = (BSEL96 >> 8) | (BSCALE96 << USART_BSCALE_gp);
 
-	// 4800 baud async serial, 8N1, low priority interrupt on receive, XCL on TX
-	USARTD0.CTRLA = USART_DRIE_bm | USART_RXCINTLVL_HI_gc;
+	// 4800 baud async serial, 8N1, hi priority interrupt on receive and TX complete, XCL on TX
+	USARTD0.CTRLA = USART_DRIE_bm | USART_RXCINTLVL_HI_gc | USART_TXCINTLVL_LO_gc;
 	USARTD0.CTRLB = USART_RXEN_bm | USART_TXEN_bm;
 	USARTD0.CTRLC = USART_CHSIZE_8BIT_gc;
 	USARTD0.CTRLD = USART_DECTYPE_SDATA_gc | USART_LUTACT_TX_gc;
@@ -580,11 +583,6 @@ void __ATTR_NORETURN__ main(void) {
 			uint8_t buf[MAX_IR_FRAME];
 			size_t len = ir_rx_ptr;
 			memcpy(buf, (const uint8_t *)ir_rx_buf, len);
-			// This works around a hardware bug.
-			// We turn off the serial receiver while transmitting,
-			// but we turn it on JUST in time to get DLE ETX.
-			// So we have to "kill" the frame as we're acking it.
-			ir_rx_ptr = 0;
 			ir_frame_good = 0; // ACK
 #if DEBUG
 			print_pstring(PSTR("RX: "));
