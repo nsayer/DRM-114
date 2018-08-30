@@ -40,7 +40,7 @@
 #define BSEL48 (12)
 #define BSCALE48 (5)
 
-#define MAX_IR_FRAME (128)
+#define MAX_IR_FRAME (192)
 volatile uint8_t ir_rx_buf[MAX_IR_FRAME];
 volatile uint8_t ir_tx_buf[MAX_IR_FRAME];
 volatile uint16_t ir_rx_ptr;
@@ -53,6 +53,11 @@ volatile uint16_t user_tx_head, user_tx_tail;
 volatile uint16_t user_rx_head, user_rx_tail;
 
 volatile uint8_t ir_frame_good;
+
+// This is a millisecond counter, used for blinking the attention LED.
+volatile uint32_t ticks;
+
+uint32_t blink_start;
 
 #define MAX_NAME_SIZE (16)
 char myname[MAX_NAME_SIZE];
@@ -84,6 +89,11 @@ size_t last_ir_frame_len;
 #define CR (13)
 #define DLE (16)
 #define DEL (127)
+
+ISR(TCC4_OVF_vect) {
+	TCC4.INTFLAGS = TC4_OVFIF_bm; // ACK
+	ticks++;
+}
 
 ISR(USARTC0_DRE_vect) {
 	if (user_tx_head == user_tx_tail) {
@@ -132,7 +142,8 @@ ISR(USARTD0_RXC_vect) {
 				rx_en = 1; // enable reception
 				break;
 			case ETX:
-				ir_frame_good = 1; // tell the higher level a frame is ready
+				if (ir_rx_ptr > 0)
+					ir_frame_good = 1; // tell the higher level a frame is ready
 				rx_en = 0;
 				break;
 			case DLE:
@@ -186,7 +197,7 @@ static inline void ir_tx_char(uint8_t c) {
 	}
 	//USARTD0.CTRLA &= ~USART_DREINTLVL_gm; // this is redundant - it was already 0
 	USARTD0.CTRLB &= ~USART_RXEN_bm; // turn the receiver off while we're transmitting.
-	USARTD0.CTRLA |= USART_DREINTLVL_LO_gc; // enable the TX interrupt. If it was disabled, then it will trigger one now.
+	USARTD0.CTRLA |= USART_DREINTLVL_HI_gc; // enable the TX interrupt. If it was disabled, then it will trigger one now.
 }
 
 static inline void user_tx_char(uint8_t c) {
@@ -206,7 +217,7 @@ static inline void user_tx_char(uint8_t c) {
 		if (++user_tx_head == sizeof(user_tx_buf)) user_tx_head = 0; // point to the next free spot in the tx buffer
 	}
 	//USARTC0.CTRLA &= ~USART_DREINTLVL_gm; // this is redundant - it was already 0
-	USARTC0.CTRLA |= USART_DREINTLVL_LO_gc; // enable the TX interrupt. If it was disabled, then it will trigger one now.
+	USARTC0.CTRLA |= USART_DREINTLVL_MED_gc; // enable the TX interrupt. If it was disabled, then it will trigger one now.
 }
 
 static void print_pstring(const char * msg) {
@@ -223,10 +234,12 @@ const char hexes[] PROGMEM = "0123456789abcdef";
 // Queue up an IR frame for transmission
 static void ir_tx_frame(uint8_t *buf, size_t len) {
 #ifdef DEBUG
+	print_pstring(PSTR("TX: "));
 	for(int j = 0; j < len; j++) {
 		user_tx_char(pgm_read_byte(&(hexes[buf[j] >> 4])));
 		user_tx_char(pgm_read_byte(&(hexes[buf[j] & 0xf])));
 	}
+	print_pstring(PSTR("\r\n\r\n"));
 #endif
 	ir_tx_char(DLE);
 	ir_tx_char(STX);
@@ -249,8 +262,11 @@ static void print_prompt() {
 	user_tx_char(' ');
 }
 
-// XXX If we had a (visible) hardware LED, then it would be good to blink it.
 static void print_achtung(uint8_t *buf) {
+	ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+		blink_start = ticks;
+		if (blink_start == 0) blink_start++; // it's not allowed to be set to zero
+	}
 	user_tx_char(CR); // no NL - we will over-print the input buffer
 	user_tx_char(BEL); // BEL
 	print_string((char *)buf); // the sender's name
@@ -408,6 +424,7 @@ static void handle_line() {
 					return;
 				}
 				ir_tx_frame(last_ir_frame, last_ir_frame_len);
+				print_pstring(PSTR("Sent attention!\r\n"));
 				return;
 			default:
 				print_pstring(PSTR("Invalid command. /? for help.\r\n"));
@@ -457,17 +474,28 @@ void __ATTR_NORETURN__ main(void) {
 #endif
 
 	// Leave on only the parts of the chip we actually use
-	// So the XCL and the two USARTs.
+	// So the XCL, timer C4 and the two USARTs.
 	PR.PRGEN = PR_RTC_bm | PR_EVSYS_bm | PR_EDMA_bm;
 	PR.PRPA = PR_DAC_bm | PR_ADC_bm | PR_AC_bm;
-	PR.PRPC = PR_TWI_bm | PR_SPI_bm | PR_HIRES_bm | PR_TC5_bm | PR_TC4_bm;
+	PR.PRPC = PR_TWI_bm | PR_SPI_bm | PR_HIRES_bm | PR_TC5_bm;
 	PR.PRPD = PR_TC5_bm;
 
+	PORTC.OUTCLR = _BV(0); // the LED starts off
 	PORTC.OUTSET = _BV(3); // TXD defaults to high, but we really don't use it anyway
-	PORTC.DIRSET = _BV(3); // TXD is an output.
+	PORTC.DIRSET = _BV(0) | _BV(3); // ATTN and TXD is an output.
 	PORTD.PIN3CTRL = PORT_INVEN_bm; // invert the TX pin.
 	PORTD.OUTSET = _BV(3); // TXD defaults to high, but we really don't use it anyway
 	PORTD.DIRSET = _BV(3); // TXD is an output.
+
+	// TCC4 is a millisecond counter
+	TCC4.CTRLA = TC45_CLKSEL_DIV256_gc; // 125 kHz timer clocking
+	TCC4.CTRLB = 0;
+	TCC4.CTRLC = 0;
+	TCC4.CTRLD = 0;
+	TCC4.CTRLE = 0;
+	TCC4.INTCTRLA = TC45_OVFINTLVL_LO_gc;
+	TCC4.INTCTRLB = 0;
+	TCC4.PER = 124; // 125 - 1
 
 	XCL.CTRLA = XCL_PORTSEL_PD_gc; // port D, 2 independent LUT, no LUT out pins
 	XCL.CTRLB = XCL_IN3SEL0_bm | XCL_IN2SEL0_bm; // LUT 1 inputs from XCL
@@ -481,7 +509,7 @@ void __ATTR_NORETURN__ main(void) {
 	XCL.CMPL = 110/2; // 50% (ish) duty cycle
 
 	// 9600 baud async serial, 8N1, low priority interrupt on receive
-	USARTC0.CTRLA = USART_DRIE_bm | USART_RXCINTLVL_LO_gc;
+	USARTC0.CTRLA = USART_DRIE_bm | USART_RXCINTLVL_MED_gc;
 	USARTC0.CTRLB = USART_RXEN_bm | USART_TXEN_bm;
 	USARTC0.CTRLC = USART_CHSIZE_8BIT_gc;
 	USARTC0.CTRLD = 0;
@@ -489,7 +517,7 @@ void __ATTR_NORETURN__ main(void) {
 	USARTC0.BAUDCTRLB = (BSEL96 >> 8) | (BSCALE96 << USART_BSCALE_gp);
 
 	// 4800 baud async serial, 8N1, low priority interrupt on receive, XCL on TX
-	USARTD0.CTRLA = USART_DRIE_bm | USART_RXCINTLVL_LO_gc;
+	USARTD0.CTRLA = USART_DRIE_bm | USART_RXCINTLVL_HI_gc;
 	USARTD0.CTRLB = USART_RXEN_bm | USART_TXEN_bm;
 	USARTD0.CTRLC = USART_CHSIZE_8BIT_gc;
 	USARTD0.CTRLD = USART_DECTYPE_SDATA_gc | USART_LUTACT_TX_gc;
@@ -500,6 +528,7 @@ void __ATTR_NORETURN__ main(void) {
 	ir_frame_good = 0;
 	ir_tx_head = ir_tx_tail = 0;
 	last_ir_frame_len = 0;
+	blink_start = 0;
 
 	user_tx_head = user_tx_tail = 0;
 	user_rx_head = user_rx_tail = 0;
@@ -546,8 +575,16 @@ void __ATTR_NORETURN__ main(void) {
 			// first, save the frame in case another comes in.
 			uint8_t buf[MAX_IR_FRAME];
 			size_t len = ir_rx_ptr;
-			memcpy(buf, (const uint8_t *)ir_tx_buf, len);
+			memcpy(buf, (const uint8_t *)ir_rx_buf, len);
 			ir_frame_good = 0; // ACK
+#if DEBUG
+			print_pstring(PSTR("RX: "));
+			for(int j = 0; j < len; j++) {
+				user_tx_char(pgm_read_byte(&(hexes[buf[j] >> 4])));
+				user_tx_char(pgm_read_byte(&(hexes[buf[j] & 0xf])));
+			}
+			print_pstring(PSTR("\r\n\r\n"));
+#endif
 			handle_ir_frame(buf, len);
 			continue;
 		}
@@ -583,6 +620,23 @@ void __ATTR_NORETURN__ main(void) {
 			input_line[input_line_pos++] = (char)c;
 			user_tx_char((uint8_t)c);
 			continue;
+		}
+		// 4. Handle LED blinking
+		if (blink_start != 0) {
+			uint32_t blink_pos;
+			ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+				blink_pos = ticks - blink_start;
+			}
+			blink_pos /= 100; // the blink timing is 1/10 sec blinks for 1/2 sec.
+			if (blink_pos >= 6) {
+				PORTC.OUTCLR = _BV(0); // turn it off
+				blink_start = 0; // we're done
+				continue;
+			}
+			if (blink_pos % 2)
+				PORTC.OUTCLR = _BV(0);
+			else
+				PORTC.OUTSET = _BV(0);
 		}
 	}
 }
