@@ -576,6 +576,11 @@ void __ATTR_NORETURN__ main(void) {
 			uint8_t buf[MAX_IR_FRAME];
 			size_t len = ir_rx_ptr;
 			memcpy(buf, (const uint8_t *)ir_rx_buf, len);
+			// This works around a hardware bug.
+			// We turn off the serial receiver while transmitting,
+			// but we turn it on JUST in time to get DLE ETX.
+			// So we have to "kill" the frame as we're acking it.
+			ir_rx_ptr = 0;
 			ir_frame_good = 0; // ACK
 #if DEBUG
 			print_pstring(PSTR("RX: "));
