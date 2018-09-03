@@ -21,10 +21,10 @@
 
 
 // ct_length is the available length of the buffer on input, and the actual length of the ciphertext on
-// output.
+// output. The return is true if the encryption succeeded (it can only fail if the buffer isn't long enough).
 extern uint8_t encrypt_message(uint8_t* plaintext, size_t pt_length, uint8_t* ciphertext, size_t * ct_length);
 
-// ct_length is the available length of the buffer on input, and the actual length of the ciphertext on
+// pt_length is the available length of the buffer on input, and the actual length of the plaintext on
 // output. The return is true if the decrypted message validates, false otherwise.
 extern uint8_t decrypt_message(uint8_t* ciphertext, size_t ct_length, uint8_t* plaintext, size_t * pt_length);
 

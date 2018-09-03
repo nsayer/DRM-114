@@ -25,20 +25,26 @@ ECB decryption support is optional, as OFB mode and CMAC need only AES ECB encry
 #include <stdint.h>
 #include <stdlib.h>
 
+// For AES-128, it's a coincidence that the key size and block size is the same.
 #define KEY_SIZE (16)
 #define BLOCK_SIZE (16)
 
+// Set key for all AES operations. Buffer is KEY_SIZE long.
 void setKey(uint8_t* key);
+
+// Perform an AES ECB block encrytion (call setKey first). Block is BLOCK_SIZE long.
 void encrypt_ECB(uint8_t* block);
+// We don't use ECB decryption, which saves us space in flash.
 //void decrypt_ECB(uint8_t* block);
 
-// IV is BLOCK_SIZE long
+// Prepare for an AES OFB encrypt/decrypt operation. IV is BLOCK_SIZE long
 void init_OFB(uint8_t* iv);
 
-// OFB decryption uses the encrypt method.
-uint8_t encrypt_OFB_byte(uint8_t data);
+// Perform an AES OFB encrypt or decrypt operation.
 void encrypt_OFB(uint8_t* buf, size_t buf_length);
 
+// Generate AES CMAC over the given buffer (call setKey first).
+// The signature buffer is BLOCK_SIZE long.
 void CMAC(uint8_t *buf, size_t buf_length, uint8_t *sigbuf);
 
 // generate random numbers using AES CMAC with a seed periodically saved to EEPROM.

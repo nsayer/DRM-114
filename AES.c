@@ -19,7 +19,7 @@ Copyright 2017 Nicholas Sayer
 
 This version has been flattened to support only 128 bit AES.
 
-ECB decryption support is optional, as Counter mode and CMAC need only AES ECB encrypt to both encrypt and decrypt.
+ECB decryption support is optional, as OFB mode and CMAC need only AES ECB encrypt to both encrypt and decrypt.
 
  */
 
@@ -51,7 +51,7 @@ ECB decryption support is optional, as Counter mode and CMAC need only AES ECB e
 
 #include "AES.h"
 
-// If you're going, for example, to use OFB mode, then you don't actually need to supply any decryption functionality
+// If you're only going to use OFB mode and CMAC, then you don't actually need to supply any ECB decryption functionality
 //#define DECRYPT
 
 #ifdef TEST
@@ -684,7 +684,7 @@ static uint32_t subWord(uint32_t x)
      * This code is written assuming 128 bit keys. The code for 192 or 256 bits
      * was removed.
      */
-void generateWorkingKey(uint8_t* key, uint8_t forEncryption, workingKey W)
+static void generateWorkingKey(uint8_t* key, uint8_t forEncryption, workingKey W)
 {
 
             uint32_t t0 = LITTLE_ENDIAN_TO_UINT(key + 0); W[0][0] = t0;
@@ -716,21 +716,21 @@ void generateWorkingKey(uint8_t* key, uint8_t forEncryption, workingKey W)
 
 }
 
-void unpackBlock(uint8_t* bytes) {
+static void unpackBlock(uint8_t* bytes) {
 	C0 = LITTLE_ENDIAN_TO_UINT(bytes + 0);
 	C1 = LITTLE_ENDIAN_TO_UINT(bytes + 4);
 	C2 = LITTLE_ENDIAN_TO_UINT(bytes + 8);
 	C3 = LITTLE_ENDIAN_TO_UINT(bytes + 12);
 }
 
-void packBlock(uint8_t* bytes) {
+static void packBlock(uint8_t* bytes) {
 	UINT_TO_LITTLE_ENDIAN(C0, bytes + 0);
 	UINT_TO_LITTLE_ENDIAN(C1, bytes + 4);
 	UINT_TO_LITTLE_ENDIAN(C2, bytes + 8);
 	UINT_TO_LITTLE_ENDIAN(C3, bytes + 12);
 }
 
-void encryptBlock(workingKey KW) {
+static void encryptBlock(workingKey KW) {
         uint32_t t0 = C0 ^ KW[0][0];
         uint32_t t1 = C1 ^ KW[0][1];
         uint32_t t2 = C2 ^ KW[0][2];
@@ -927,7 +927,7 @@ void init_OFB(uint8_t* iv) {
 // Turns out that for OFB mode, we can encrypt and decrypt with the exact same method.
 // This method allows for streaming OFB mode. You can call this over and over
 // after calling init_OFB to initialize things.
-uint8_t encrypt_OFB_byte(uint8_t data) {
+static inline uint8_t encrypt_OFB_byte(uint8_t data) {
 	if (iv_pos >= BLOCK_SIZE) {
 		// restart
 		encrypt_ECB(iv_block);
@@ -942,7 +942,7 @@ void encrypt_OFB(uint8_t* buf, size_t buf_length) {
 	}
 }
 
-uint8_t leftShiftBlock(uint8_t* ptr, size_t block_length) {
+static uint8_t leftShiftBlock(uint8_t* ptr, size_t block_length) {
 	uint8_t carry = 0;
 	for(int i = block_length - 1; i >= 0; i--) {
 		uint8_t save_carry = (ptr[i] & 0x80)?1:0;
