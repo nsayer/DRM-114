@@ -2,7 +2,7 @@
 
 This is the firmware for [DRM-114](https://hackaday.io/project/160434-drm-114).
 
-DRM-114 is a #badgelife add-on for DEFCON 2018. It uses a new 6 pin variant of the SAO connector with the extra two pins being TTL
+DRM-114 is a #badgelife add-on for DEFCON 2019. It uses a new 6 pin variant of the SAO connector with the extra two pins being TTL
 async serial receive and transmit. The host badge is intended to provide a dumb terminal. The functionality of DRM-114 is to provide
 a secure optical chat and private messaging system. The security of this system relies on the fact that one file of the firmware
 is proprietary and *not* open-source. That one file represents an "effective means of access control" for the purposes of section
