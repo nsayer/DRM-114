@@ -581,9 +581,12 @@ void __ATTR_NORETURN__ main(void) {
 		if (ir_frame_good) {
 			// first, save the frame in case another comes in.
 			uint8_t buf[MAX_IR_FRAME];
-			size_t len = ir_rx_ptr;
-			memcpy(buf, (const uint8_t *)ir_rx_buf, len);
-			ir_frame_good = 0; // ACK
+			size_t len;
+			ATOMIC_BLOCK(ATOMIC_RESTORESTATE) {
+				len = ir_rx_ptr;
+				memcpy(buf, (const uint8_t *)ir_rx_buf, len);
+				ir_frame_good = 0; // ACK
+			}
 #if DEBUG
 			print_pstring(PSTR("RX: "));
 			for(int j = 0; j < len; j++) {
@@ -601,18 +604,18 @@ void __ATTR_NORETURN__ main(void) {
 		if ((c = user_rx_char()) != 0xffff) {
 			c &= 0x7f;
 			switch(c) {
-				case 8: // BS
-				case 0x7f: // DEL
+				case BS:
+				case DEL:
 					if (input_line_pos == 0) continue; // can't backspace past beinning
 					input_line_pos--;
 					user_tx_char(BS);
 					user_tx_char(' ');
 					user_tx_char(BS);
 					continue;
-				case 11: // NL
-				case 13: // CR
-					user_tx_char(CR); // CR
-					user_tx_char(NL); // NL
+				case NL:
+				case CR:
+					user_tx_char(CR);
+					user_tx_char(NL);
 					input_line[input_line_pos] = 0; // null terminate
 					handle_line();
 					print_prompt();
@@ -621,7 +624,7 @@ void __ATTR_NORETURN__ main(void) {
 			}
 			if (c < 32) continue; // ignore all other control chars
 			if (input_line_pos >= sizeof(input_line)) {
-				user_tx_char(BEL); // BEL
+				user_tx_char(BEL);
 				continue;
 			}
 			input_line[input_line_pos++] = (char)c;
