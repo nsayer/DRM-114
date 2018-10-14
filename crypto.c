@@ -41,50 +41,11 @@
 
 #define MAX(a,b) (((a)<(b))?(b):(a))
 
-// ct_length is the available length of the buffer on input, and the actual length of the ciphertext on
-// output. The return is true if the encryption succeeded. The only way it can be false is if the
-// output buffer isn't large enough to accommodate the ciphertext.
-uint8_t encrypt_message(uint8_t* plaintext, size_t pt_length, uint8_t* ciphertext, size_t *ct_length) {
-
-	if (*ct_length < pt_length + KEY_SIZE + BLOCK_SIZE * 2) return 0; // we'd throw an exception if we could
-
-	PRNG(ciphertext, KEY_SIZE + BLOCK_SIZE); // make a random key and a random IV
-	memcpy(ciphertext + KEY_SIZE + 2 * BLOCK_SIZE, plaintext, pt_length); // copy the plaintext into the right spot
-	setKey(ciphertext);
-	CMAC(plaintext, pt_length, ciphertext + KEY_SIZE + BLOCK_SIZE); // generate the MAC for the message
-	init_OFB(ciphertext + KEY_SIZE); // set up the IV
-	encrypt_OFB(ciphertext + KEY_SIZE + BLOCK_SIZE, pt_length + BLOCK_SIZE); // encrypt the MAC and plaintext
-	protect_key(ciphertext, 1); // and, lastly, obfuscate the key
-	*ct_length = pt_length + KEY_SIZE + BLOCK_SIZE * 2;
-	return 1;
-}
-
-// pt_length is the available length of the plaintext buffer on input, and the actual length of the plaintext on
-// output. The return is true if the decrypted message validates, false otherwise.
-uint8_t decrypt_message(uint8_t* ciphertext, size_t ct_length, uint8_t* plaintext, size_t *pt_length) {
-	if (ct_length < KEY_SIZE + BLOCK_SIZE * 2) return 0; // too short
-	if (*pt_length < ct_length - (KEY_SIZE + BLOCK_SIZE * 2)) return 0; // output buffer too short
-	protect_key(ciphertext, 0); // get back the correct key
-	setKey(ciphertext);
-	init_OFB(ciphertext + KEY_SIZE);
-	encrypt_OFB(ciphertext + KEY_SIZE + BLOCK_SIZE, ct_length - (KEY_SIZE + BLOCK_SIZE)); // Decrypt the MAC and plaintext
-	uint8_t computed_mac[BLOCK_SIZE];
-	CMAC(ciphertext + KEY_SIZE + BLOCK_SIZE * 2, ct_length - (KEY_SIZE + BLOCK_SIZE * 2), computed_mac); // calculate actual MAC
-	uint8_t bad = 0;
-	for(int i = 0; i < BLOCK_SIZE; i++) // compare computed to expected MAC.
-		if (computed_mac[i] != ciphertext[i + KEY_SIZE + BLOCK_SIZE]) bad = 1; // do NOT break - side channel attack
-	if (bad) return 0; // bad MAC
-
-	// it's all good.
-	*pt_length = ct_length - (KEY_SIZE + BLOCK_SIZE * 2);
-	memcpy(plaintext, ciphertext + KEY_SIZE + BLOCK_SIZE * 2, *pt_length);
-	return 1;
-}
 
 static uint8_t iv_block[BLOCK_SIZE];
 static uint8_t iv_pos;
 
-void init_OFB(uint8_t* iv) {
+static inline void init_OFB(uint8_t* iv) {
         memcpy(iv_block, iv, sizeof(iv_block));
         iv_pos = BLOCK_SIZE + 1; // force an initial restart
 }
@@ -101,7 +62,7 @@ static inline uint8_t encrypt_OFB_byte(uint8_t data) {
         return data ^ iv_block[iv_pos++];
 }
 
-void encrypt_OFB(uint8_t* buf, size_t buf_length) {
+static void encrypt_OFB(uint8_t* buf, size_t buf_length) {
         for(int i = 0; i < buf_length; i++) {
                 buf[i] = encrypt_OFB_byte(buf[i]);
         }
@@ -119,7 +80,7 @@ static uint8_t leftShiftBlock(uint8_t* ptr, size_t block_length) {
 }
 
 // perform an AES CMAC signature on the given buffer.
-void CMAC(uint8_t *buf, size_t buf_length, uint8_t *sigbuf) {
+static void CMAC(uint8_t *buf, size_t buf_length, uint8_t *sigbuf) {
         uint8_t kn[BLOCK_SIZE];
         memset(kn, 0, BLOCK_SIZE); // start with 0.
         encrypt_ECB(kn);
@@ -199,7 +160,7 @@ static void make_prng_block() {
         encrypt_ECB(prng_block);
 }
 
-void PRNG(uint8_t *buf, size_t buf_length) {
+static void PRNG(uint8_t *buf, size_t buf_length) {
         for(int i = 0; i < buf_length; i += sizeof(prng_block)) {
                 make_prng_block();
                 memcpy(buf + i, prng_block, MAX(sizeof(prng_block), buf_length - i));
@@ -207,3 +168,42 @@ void PRNG(uint8_t *buf, size_t buf_length) {
         PRNG_update();
 }
 
+// ct_length is the available length of the buffer on input, and the actual length of the ciphertext on
+// output. The return is true if the encryption succeeded. The only way it can be false is if the
+// output buffer isn't large enough to accommodate the ciphertext.
+uint8_t encrypt_message(uint8_t* plaintext, size_t pt_length, uint8_t* ciphertext, size_t *ct_length) {
+
+	if (*ct_length < pt_length + KEY_SIZE + BLOCK_SIZE * 2) return 0; // we'd throw an exception if we could
+
+	PRNG(ciphertext, KEY_SIZE + BLOCK_SIZE); // make a random key and a random IV
+	memcpy(ciphertext + KEY_SIZE + 2 * BLOCK_SIZE, plaintext, pt_length); // copy the plaintext into the right spot
+	setKey(ciphertext);
+	CMAC(plaintext, pt_length, ciphertext + KEY_SIZE + BLOCK_SIZE); // generate the MAC for the message
+	init_OFB(ciphertext + KEY_SIZE); // set up the IV
+	encrypt_OFB(ciphertext + KEY_SIZE + BLOCK_SIZE, pt_length + BLOCK_SIZE); // encrypt the MAC and plaintext
+	protect_key(ciphertext, 1); // and, lastly, obfuscate the key
+	*ct_length = pt_length + KEY_SIZE + BLOCK_SIZE * 2;
+	return 1;
+}
+
+// pt_length is the available length of the plaintext buffer on input, and the actual length of the plaintext on
+// output. The return is true if the decrypted message validates, false otherwise.
+uint8_t decrypt_message(uint8_t* ciphertext, size_t ct_length, uint8_t* plaintext, size_t *pt_length) {
+	if (ct_length < KEY_SIZE + BLOCK_SIZE * 2) return 0; // too short
+	if (*pt_length < ct_length - (KEY_SIZE + BLOCK_SIZE * 2)) return 0; // output buffer too short
+	protect_key(ciphertext, 0); // get back the correct key
+	setKey(ciphertext);
+	init_OFB(ciphertext + KEY_SIZE);
+	encrypt_OFB(ciphertext + KEY_SIZE + BLOCK_SIZE, ct_length - (KEY_SIZE + BLOCK_SIZE)); // Decrypt the MAC and plaintext
+	uint8_t computed_mac[BLOCK_SIZE];
+	CMAC(ciphertext + KEY_SIZE + BLOCK_SIZE * 2, ct_length - (KEY_SIZE + BLOCK_SIZE * 2), computed_mac); // calculate actual MAC
+	uint8_t bad = 0;
+	for(int i = 0; i < BLOCK_SIZE; i++) // compare computed to expected MAC.
+		if (computed_mac[i] != ciphertext[i + KEY_SIZE + BLOCK_SIZE]) bad = 1; // do NOT break - side channel attack
+	if (bad) return 0; // bad MAC
+
+	// it's all good.
+	*pt_length = ct_length - (KEY_SIZE + BLOCK_SIZE * 2);
+	memcpy(plaintext, ciphertext + KEY_SIZE + BLOCK_SIZE * 2, *pt_length);
+	return 1;
+}
