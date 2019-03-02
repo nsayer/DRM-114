@@ -63,12 +63,11 @@ ECB decryption support is optional, as OFB mode and CMAC need only AES ECB encry
 #define uint8_t u_int8_t
 #define uint16_t u_int16_t
 #define uint32_t u_int32_t
-#define PROGMEM
-#define eeprom_write_byte(x,y)
-#define eeprom_write_dword(x,y)
 
+#define PROGMEM
 #define pgm_read_byte(x) (*((uint8_t*)x))
 #define pgm_read_dword(x) (*((uint32_t*)x))
+
 #else
 // Compiling for real on an AVR.
 #include <stdint.h>
