@@ -33,6 +33,10 @@
 #include "AES.h"
 #include "crypto.h"
 
+// V3 hardware moves the ATTN pin to D7 to get out of the way of the i2c
+// pins.
+//#define V3
+
 // Serial baud constants for 9600 bps @ 32 MHz
 #define BSEL96 (12)
 #define BSCALE96 (4)
@@ -483,15 +487,28 @@ void __ATTR_NORETURN__ main(void) {
 	// So the XCL, timer C4 and the two USARTs.
 	PR.PRGEN = PR_RTC_bm | PR_EVSYS_bm | PR_EDMA_bm;
 	PR.PRPA = PR_DAC_bm | PR_ADC_bm | PR_AC_bm;
+#ifdef V3
+	PR.PRPC = PR_SPI_bm | PR_HIRES_bm | PR_TC5_bm;
+#else
 	PR.PRPC = PR_TWI_bm | PR_SPI_bm | PR_HIRES_bm | PR_TC5_bm;
+#endif
 	PR.PRPD = PR_TC5_bm;
 
 	PORTC.OUTCLR = _BV(0); // the LED starts off
 	PORTC.OUTSET = _BV(3); // TXD defaults to high, but we really don't use it anyway
+#ifdef V3
+	PORTC.DIRSET = _BV(3); // TXD is an output
+#else
 	PORTC.DIRSET = _BV(0) | _BV(3); // ATTN and TXD is an output.
+#endif
+
 	PORTD.PIN3CTRL = PORT_INVEN_bm; // invert the TX pin.
 	PORTD.OUTSET = _BV(3); // TXD defaults to high, but we really don't use it anyway
+#ifdef V3
+	PORTD.DIRSET = _BV(3) | _BV(7); // ATTN and TXD is an output.
+#else
 	PORTD.DIRSET = _BV(3); // TXD is an output.
+#endif
 
 	// TCC4 is a millisecond counter
 	TCC4.CTRLA = TC45_CLKSEL_DIV256_gc; // 125 kHz timer clocking
@@ -530,6 +547,10 @@ void __ATTR_NORETURN__ main(void) {
 	USARTD0.CTRLD = USART_DECTYPE_SDATA_gc | USART_LUTACT_TX_gc;
 	USARTD0.BAUDCTRLA = BSEL48 & 0xff;
 	USARTD0.BAUDCTRLB = (BSEL48 >> 8) | (BSCALE48 << USART_BSCALE_gp);
+
+#ifdef V3
+	// to-do: set up i2c... for what?
+#endif
 
 	ir_rx_ptr = 0;
 	ir_frame_good = 0;
@@ -639,14 +660,26 @@ void __ATTR_NORETURN__ main(void) {
 			}
 			blink_pos /= 100; // the blink timing is 1/10 sec blinks for 1/2 sec.
 			if (blink_pos >= 6) {
+#ifdef V3
+				PORTD.OUTCLR = _BV(7); // turn it off
+#else
 				PORTC.OUTCLR = _BV(0); // turn it off
+#endif
 				blink_start = 0; // we're done
 				continue;
 			}
 			if (blink_pos % 2)
+#ifdef V3
+				PORTD.OUTCLR = _BV(7);
+#else
 				PORTC.OUTCLR = _BV(0);
+#endif
 			else
+#ifdef V3
+				PORTD.OUTSET = _BV(7);
+#else
 				PORTC.OUTSET = _BV(0);
+#endif
 		}
 	}
 }
