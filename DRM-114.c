@@ -25,6 +25,7 @@
 #include <avr/io.h>
 #include <avr/wdt.h>
 #include <avr/pgmspace.h>
+#include <avr/eeprom.h>
 #include <util/atomic.h>
 #include <stddef.h>
 #include <stdlib.h>
@@ -237,9 +238,7 @@ static void print_pstring(const char * msg) {
 }
 
 //#define DEBUG 1
-#ifdef DEBUG
 const char hexes[] PROGMEM = "0123456789abcdef";
-#endif
 
 // Queue up an IR frame for transmission
 static void ir_tx_frame(uint8_t *buf, size_t len) {
@@ -361,6 +360,20 @@ static const char *getarg(const char *input_line) {
 	return input_line + count;
 }
 
+static void save_username() {
+	eeprom_write_byte((uint8_t*)0, strlen(myname));
+	for(int i = 0; i < strlen(myname); i++)
+		eeprom_write_byte((uint8_t*)(i + 1), myname[i]);
+}
+
+static void load_username() {
+	size_t len =  eeprom_read_byte((uint8_t*)0);
+	if (len > MAX_NAME_SIZE) return; // no change
+	for(int i = 0; i < len; i++)
+		myname[i] = eeprom_read_byte((uint8_t*)(i + 1));
+	myname[len] = 0;
+}
+
 static void handle_line() {
 	uint8_t pt_buf[MAX_IR_FRAME];
 	size_t pos;
@@ -381,6 +394,7 @@ static void handle_line() {
 						return;
 					}
 					strcpy(myname, arg);
+					save_username();
 					print_pstring(PSTR("Your name is now "));
 					print_string(myname);
 					print_pstring(PSTR(".\r\n"));
@@ -561,7 +575,6 @@ void __ATTR_NORETURN__ main(void) {
 	user_tx_head = user_tx_tail = 0;
 	user_rx_head = user_rx_tail = 0;
 
-	strcpy_P(myname, PSTR("default"));
 	talkname[0] = 0; // start broadcasting
 	input_line_pos = 0;
 
@@ -582,6 +595,18 @@ void __ATTR_NORETURN__ main(void) {
 		serial[10] = pgm_read_byte(offsetof(NVM_PROD_SIGNATURES_t, COORDY0));
 		NVM.CMD = NVM_CMD_NO_OPERATION_gc;
 		PRNG_init(serial, sizeof(serial));
+	}
+	*myname = 0;
+	load_username();
+	if (*myname == 0) {
+		uint8_t rand_name[2];
+		PRNG(rand_name, sizeof(rand_name));
+		strcpy_P(myname, PSTR("def_XXXX"));
+		myname[4] = pgm_read_byte(&hexes[rand_name[0] >> 4]);
+		myname[5] = pgm_read_byte(&hexes[rand_name[0] & 0xf]);
+		myname[6] = pgm_read_byte(&hexes[rand_name[1] >> 4]);
+		myname[7] = pgm_read_byte(&hexes[rand_name[1] & 0xf]);
+		save_username();
 	}
 
 	PMIC.CTRL = PMIC_HILVLEN_bm | PMIC_MEDLVLEN_bm | PMIC_LOLVLEN_bm;

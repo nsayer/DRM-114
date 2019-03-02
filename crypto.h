@@ -31,4 +31,5 @@ extern uint8_t decrypt_message(uint8_t* ciphertext, size_t ct_length, uint8_t* p
 // Initialize the PRNG key with a buffer of per-instance uniqueness
 // (we'll use the chip serial information)
 void PRNG_init(uint8_t *seed_buf, size_t seed_len);
+void PRNG(uint8_t *buf, size_t len);
 

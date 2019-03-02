@@ -160,7 +160,7 @@ static void make_prng_block() {
         encrypt_ECB(prng_block);
 }
 
-static void PRNG(uint8_t *buf, size_t buf_length) {
+void PRNG(uint8_t *buf, size_t buf_length) {
         for(int i = 0; i < buf_length; i += sizeof(prng_block)) {
                 make_prng_block();
                 memcpy(buf + i, prng_block, MAX(sizeof(prng_block), buf_length - i));
