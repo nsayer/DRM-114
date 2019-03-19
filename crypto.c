@@ -2,7 +2,7 @@
 /*
 
     DRM-114
-    Copyright (C) 2018 Nicholas W. Sayer
+    Copyright (C) 2018-2019 Nicholas W. Sayer
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by

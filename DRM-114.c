@@ -2,7 +2,7 @@
 /*
 
     DRM-114
-    Copyright (C) 2018 Nicholas W. Sayer
+    Copyright (C) 2018-2019 Nicholas W. Sayer
 
     This program is free software; you can redistribute it and/or modify
     it under the terms of the GNU General Public License as published by
@@ -38,9 +38,9 @@
 // pins.
 //#define V3
 
-// Serial baud constants for 9600 bps @ 32 MHz
-#define BSEL96 (12)
-#define BSCALE96 (4)
+// Serial baud constants for 115200 bps @ 32 MHz
+#define BSEL115 (131)
+#define BSCALE115 (-3)
 // Serial baud constants for 4800 bps @ 32 MHz
 #define BSEL48 (12)
 #define BSCALE48 (5)
@@ -546,13 +546,13 @@ void __ATTR_NORETURN__ main(void) {
 	XCL.PERCAPTL = 110; // 36 kHz
 	XCL.CMPL = 110/2; // 50% (ish) duty cycle
 
-	// 9600 baud async serial, 8N1, med priority interrupt on receive
+	// 115200 baud async serial, 8N1, med priority interrupt on receive
 	USARTC0.CTRLA = USART_DRIE_bm | USART_RXCINTLVL_MED_gc;
 	USARTC0.CTRLB = USART_RXEN_bm | USART_TXEN_bm;
 	USARTC0.CTRLC = USART_CHSIZE_8BIT_gc;
 	USARTC0.CTRLD = 0;
-	USARTC0.BAUDCTRLA = BSEL96 & 0xff;
-	USARTC0.BAUDCTRLB = (BSEL96 >> 8) | (BSCALE96 << USART_BSCALE_gp);
+	USARTC0.BAUDCTRLA = BSEL115 & 0xff;
+	USARTC0.BAUDCTRLB = (BSEL115 >> 8) | (BSCALE115 << USART_BSCALE_gp);
 
 	// 4800 baud async serial, 8N1, hi priority interrupt on receive and TX complete, XCL on TX
 	USARTD0.CTRLA = USART_DRIE_bm | USART_RXCINTLVL_HI_gc | USART_TXCINTLVL_LO_gc;
@@ -614,7 +614,7 @@ void __ATTR_NORETURN__ main(void) {
 
 	// Print startup message
 	print_pstring(PSTR("\r\n\r\nDRM-114\r\n"));
-	print_pstring(PSTR("Copyright 2018 Nick Sayer\r\n"));
+	print_pstring(PSTR("Copyright 2018-2019 Nick Sayer\r\n"));
 	print_pstring(PSTR("/? for help\r\n"));
 	print_prompt();
 
