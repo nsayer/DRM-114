@@ -57,6 +57,10 @@ volatile uint8_t user_tx_buf[USER_BUF_SIZE];
 volatile uint16_t user_tx_head, user_tx_tail;
 volatile uint16_t user_rx_head, user_rx_tail;
 
+// 0-16 is the PRNG seed
+// The name location is MAX_NAME_SIZE + 1 bytes long
+#define EEPROM_NAME_LOCATION ((uint8_t *)16)
+
 volatile uint8_t ir_frame_good;
 
 // This is a millisecond counter, used for blinking the attention LED.
@@ -361,16 +365,16 @@ static const char *getarg(const char *input_line) {
 }
 
 static void save_username() {
-	eeprom_write_byte((uint8_t*)0, strlen(myname));
+	eeprom_write_byte(EEPROM_NAME_LOCATION, strlen(myname));
 	for(int i = 0; i < strlen(myname); i++)
-		eeprom_write_byte((uint8_t*)(i + 1), myname[i]);
+		eeprom_write_byte(EEPROM_NAME_LOCATION + i + 1, myname[i]);
 }
 
 static void load_username() {
-	size_t len =  eeprom_read_byte((uint8_t*)0);
+	size_t len =  eeprom_read_byte(EEPROM_NAME_LOCATION);
 	if (len > MAX_NAME_SIZE) return; // no change
 	for(int i = 0; i < len; i++)
-		myname[i] = eeprom_read_byte((uint8_t*)(i + 1));
+		myname[i] = eeprom_read_byte(EEPROM_NAME_LOCATION + i + 1);
 	myname[len] = 0;
 }
 

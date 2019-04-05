@@ -128,6 +128,7 @@ static void CMAC(uint8_t *buf, size_t buf_length, uint8_t *sigbuf) {
 static uint8_t prng_counter[BLOCK_SIZE];
 static uint8_t prng_block[BLOCK_SIZE];
 static uint8_t prng_key[KEY_SIZE];
+// The EEPROM seed block is BLOCK_SIZE long
 #define EEPROM_SEED_LOCATION ((uint8_t*)(0))
 
 // This gets called at initialization time with some sort
