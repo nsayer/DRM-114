@@ -36,7 +36,7 @@
 
 // V3 hardware moves the ATTN pin to D7 to get out of the way of the i2c
 // pins.
-//#define V3
+#define V3
 
 // Serial baud constants for 115200 bps @ 32 MHz
 #define BSEL115 (131)
