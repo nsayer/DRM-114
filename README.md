@@ -12,7 +12,7 @@ The hardware is an ATXmega32E5, an IR emitter (LED) and a 36 kHz IR receiver/dem
 data with a 36 kHz optical carrier and the receiver will demodulate received signals for us.
 
 The firmware is designed to have an interface similar to IRC. Any line typed is sent to the currently designated destination (either
-a specific nickname or to evreryone). Commands are lines that start with a "/" and are used to set the local nickname, to change the
+a specific nickname or to everyone). Commands are lines that start with a "/" and are used to set the local nickname, to change the
 current message destination, request attention (there is a visible LED that the firmware can blink) or repeat the last IR frame.
 
 The firmware is covered by GPL v2, with the exception of the AES module (which is covered by the same license as the Bouncycastle
