@@ -31,7 +31,6 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include "AES.h"
 #include "crypto.h"
 
 // V3 hardware moves the ATTN pin to D7 to get out of the way of the i2c
