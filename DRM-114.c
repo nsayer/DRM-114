@@ -264,8 +264,16 @@ static void ir_tx_frame(uint8_t *buf, size_t len) {
 }
 
 static void print_string(const char *str) {
-	for(int i = 0; i < strlen(str); i++)
-		user_tx_char(str[i]);
+	for(int i = 0; i < strlen(str); i++) {
+		char c = str[i] & 0xff;
+		if (c == 127)
+			print_pstring(PSTR("^?"));
+		else if (c < ' ') {
+			user_tx_char('^');
+			user_tx_char(c + '@');
+		} else
+			user_tx_char(c);
+	}
 }
 
 static void print_prompt() {
