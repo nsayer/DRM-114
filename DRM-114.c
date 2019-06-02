@@ -157,8 +157,9 @@ ISR(USARTD0_RXC_vect) {
 				rx_en = 1; // enable reception
 				break;
 			case ETX:
-				ir_frame_good = 1; // tell the higher level a frame is ready
-				rx_en = 0;
+				if (ir_rx_ptr > 0)
+					ir_frame_good = 1; // tell the higher level a frame is ready
+				rx_en = 0; // And stop receiving
 				break;
 			case DLE:
 				goto rx_dle;
